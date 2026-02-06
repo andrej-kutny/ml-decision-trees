@@ -40,9 +40,13 @@ def extract_feat(feat_idx, feature_set):
         feature = np.append(feature, float(features[feat_idx]))
     return feature
 
+def best_feat_splitting_point(best_feat_idx, split_thr, feature_set):
+    best_feat = np.sort(extract_feat(best_feat_idx, feature_set))
+    return (best_feat[split_thr - 1] + best_feat[split_thr]) / 2
+
 def extract_subsets(data, feature_set, feature, threshold):
     index_order = np.argsort(feature)
-    subset_l_pos, subset_r_pos = index_order[threshold:], index_order[:threshold]
+    subset_l_pos, subset_r_pos = index_order[:threshold], index_order[threshold:]
     subset_l_feats, subset_r_feats, subset_l_labels, subset_r_labels = np.asarray([]), np.asarray([]), np.asarray([]), np.asarray([])
     for pos in subset_l_pos:
         subset_l_feats = np.append(subset_l_feats, feature_set[pos], axis=0)
@@ -90,29 +94,53 @@ def split_data(data, feature_set, gini_instead_of_entropy):
     best_feat_idx, split_thr = best_split_feature(data, feature_set, gini_instead_of_entropy)
     best_feat = extract_feat(best_feat_idx, feature_set)
     subset_l_feats, subset_r_feats, subset_l_labels, subset_r_labels = extract_subsets(data, feature_set, best_feat, split_thr)
-    return best_feat_idx, subset_l_feats, subset_r_feats, subset_l_labels, subset_r_labels
+    return best_feat_idx, split_thr, subset_l_feats, subset_r_feats, subset_l_labels, subset_r_labels
 
 def grow_tree(data, feature_set, feature_names, target_name, gini_instead_of_entropy = False):
     if check_if_homogeneous(data):
-        return {"type": "leaf", "label": target_name + "_" + str(most_appropriate_label(data)[0])}
-    best_feat_idx, subset_l_feats, subset_r_feats, subset_l_labels, subset_r_labels = split_data(data, feature_set, gini_instead_of_entropy)
-    node = {"type": "node", "feature": feature_names[best_feat_idx]}
+        return {"type": "leaf", "label": most_appropriate_label(data)[0]}
+    best_feat_idx, split_thr, subset_l_feats, subset_r_feats, subset_l_labels, subset_r_labels = split_data(data, feature_set, gini_instead_of_entropy)
+    splitting_point = best_feat_splitting_point(best_feat_idx, split_thr, feature_set)
+    node = {"type": "node", "feature": feature_names[best_feat_idx], "feature_index": best_feat_idx, "splitting_point": splitting_point}
     if subset_l_labels.shape[0] != 0:
         node["left"] = grow_tree(subset_l_labels, subset_l_feats, feature_names, target_name, gini_instead_of_entropy)
     else:
-        node["left"] = {"type": "leaf", "label": target_name + "_" + str(most_appropriate_label(data)[0])}
+        node["left"] = {"type": "leaf", "label": most_appropriate_label(data)[0]}
     if subset_r_labels.shape[0] != 0:
         node["right"] = grow_tree(subset_r_labels, subset_r_feats, feature_names, target_name, gini_instead_of_entropy)
     else:
-        node["right"] = {"type": "leaf", "label": target_name + "_" + str(most_appropriate_label(data)[0])}
+        node["right"] = {"type": "leaf", "label": most_appropriate_label(data)[0]}
     return node 
 
-def predict_with_tree():
-    
-    return
+def predict_element(tree, test_element):
+    if tree["type"] == "leaf":
+        return tree["label"]
+    elif tree["type"] == "node":
+        if float(test_element[tree["feature_index"]]) <= float(tree["splitting_point"]):
+            return predict_element(tree["left"], test_element)
+        else:
+            return predict_element(tree["right"], test_element)
+
+def predict_with_tree(tree, test_set):
+    predicted_result = np.zeros(test_set.shape[0]).astype("str")
+    for i in range(test_set.shape[0]):
+        predicted_result[i] = predict_element(tree, test_set[i])
+    return predicted_result
 
 data = data_wine_labels_train
 feature_set = data_wine_feats_train
 feature_names = data_wine_feature_names
 target_name = data_wine_target_name
 
+
+# print(grow_tree(data, feature_set, feature_names, target_name))
+# print(predict_with_tree(data, feature_set, feature_names, target_name))
+tree = grow_tree(data, feature_set, feature_names, target_name)
+
+test_set = data_wine_feats_test
+
+predicted_test_set_labels = predict_with_tree(tree, test_set)
+actual_test_set_labels = data_wine_labels_test
+
+from sklearn.metrics import accuracy_score
+print(accuracy_score(actual_test_set_labels, predicted_test_set_labels))

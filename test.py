@@ -11,6 +11,8 @@ y_pred = [1,1,2,2,1] # Pretend prediction
 
 data_wine = pd.read_csv("wine.csv").to_numpy()
 
+data_wine_feature_names, data_wine_target_name = pd.read_csv("wine.csv", nrows=0).columns.to_numpy()[0:-1], pd.read_csv("wine.csv", nrows=0).columns.to_numpy()[-1]
+
 # TODO: Set up the data and split it into train and test-sets.
 data_wine_feats_train, data_wine_feats_test, data_wine_labels_train, data_wine_labels_test = train_test_split(data_wine[1:, 0:-1], data_wine[1:, -1], random_state=0)
 
@@ -25,10 +27,10 @@ def most_appropriate_label(data):
         pos_idx = np.where(label_values == label)[0][0]
         label_app_perc[pos_idx] += 1
     label_app_perc /= len(data)
-    return label_values[np.argmax(label_app_perc)], np.max(label_app_perc)
+    return int(label_values[np.argmax(label_app_perc)]), np.max(label_app_perc)
 
-def check_if_homogeneous(data):
-    if most_appropriate_label(data)[1] >= 0.8:
+def check_if_homogeneous(data, threshold = 0.8):
+    if most_appropriate_label(data)[1] >= threshold:
         return True
     return False
 
@@ -67,14 +69,14 @@ def gini_index(data):
         gini -= calculate_probability(value, data)**2
     return gini
 
-def best_split_feature(data, feature_set, imp_msr = True):  # true for "Entropy", false for "Gini"
+def best_split_feature(data, feature_set, gini): 
     split_thr = 1
     min_imp = 1
     for i in range(feature_set.shape[1]):
         feature = extract_feat(i, feature_set)
         for threshold in range(1, len(feature)):
             _, _, subset_l_labels, subset_r_labels = extract_subsets(data, feature_set, feature, threshold)
-            if imp_msr:
+            if gini == False:
                 imp = (subset_l_labels.shape[0] * entropy(subset_l_labels) + subset_r_labels.shape[0] * entropy(subset_r_labels)) / data.shape[0]
             else:
                 imp = (subset_l_labels.shape[0] * gini_index(subset_l_labels) + subset_r_labels.shape[0] * gini_index(subset_r_labels)) / data.shape[0]
@@ -84,38 +86,33 @@ def best_split_feature(data, feature_set, imp_msr = True):  # true for "Entropy"
                 split_thr = threshold
     return best_feat_idx, split_thr
 
-def grow_tree(data, feature_set):
-    print(f"GROW TREE FUNCTION CALLED\n{data.shape[0]} elements inside the data")
-    tree_label = -1
-    tree_children_labels = np.array([])
-    if check_if_homogeneous(data):
-        print("DATA IS HOMOGENEOUS")
-        tree_label = -most_appropriate_label(data)[0]
-        print(f"predicted class: {-tree_label}")
-        return tree_label, tree_children_labels
-    print("DATA IS NOT HOMOGENEOUS")
-    best_feat_idx, split_thr = best_split_feature(data, feature_set, False)
-    tree_label = best_feat_idx
+def split_data(data, feature_set, gini_instead_of_entropy):
+    best_feat_idx, split_thr = best_split_feature(data, feature_set, gini_instead_of_entropy)
     best_feat = extract_feat(best_feat_idx, feature_set)
     subset_l_feats, subset_r_feats, subset_l_labels, subset_r_labels = extract_subsets(data, feature_set, best_feat, split_thr)
-    print(f"data split into subsets of respective lengths of {subset_l_labels.shape[0]} and {subset_r_labels.shape[0]} elements")
+    return best_feat_idx, subset_l_feats, subset_r_feats, subset_l_labels, subset_r_labels
+
+def grow_tree(data, feature_set, feature_names, target_name, gini_instead_of_entropy = False):
+    if check_if_homogeneous(data):
+        return {"type": "leaf", "label": target_name + "_" + str(most_appropriate_label(data)[0])}
+    best_feat_idx, subset_l_feats, subset_r_feats, subset_l_labels, subset_r_labels = split_data(data, feature_set, gini_instead_of_entropy)
+    node = {"type": "node", "feature": feature_names[best_feat_idx]}
     if subset_l_labels.shape[0] != 0:
-        print("\nCHECKPOINT -> GROW TREE FUNCTION\n")
-        subset_l_label, _ = grow_tree(subset_l_labels, subset_l_feats)
-        tree_children_labels = np.append(tree_children_labels, subset_l_label)
+        node["left"] = grow_tree(subset_l_labels, subset_l_feats, feature_names, target_name, gini_instead_of_entropy)
     else:
-        print("\nCHECKPOINT -> LABEL APPENDED\n")
-        tree_children_labels = np.append(tree_children_labels, -most_appropriate_label(data)[0])
+        node["left"] = {"type": "leaf", "label": target_name + "_" + str(most_appropriate_label(data)[0])}
     if subset_r_labels.shape[0] != 0:
-        print("\nCHECKPOINT -> GROW TREE FUNCTION\n")
-        subset_r_label, _ = grow_tree(subset_r_labels, subset_r_feats)
-        tree_children_labels = np.append(tree_children_labels, subset_r_label)
+        node["right"] = grow_tree(subset_r_labels, subset_r_feats, feature_names, target_name, gini_instead_of_entropy)
     else:
-        print("\nCHECKPOINT -> LABEL APPENDED\n")
-        tree_children_labels = np.append(tree_children_labels, -most_appropriate_label(data)[0])
-    return tree_label, tree_children_labels
+        node["right"] = {"type": "leaf", "label": target_name + "_" + str(most_appropriate_label(data)[0])}
+    return node 
+
+def predict_with_tree():
+    
+    return
 
 data = data_wine_labels_train
 feature_set = data_wine_feats_train
+feature_names = data_wine_feature_names
+target_name = data_wine_target_name
 
-grow_tree(data, feature_set)
